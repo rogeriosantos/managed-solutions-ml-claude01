@@ -73,6 +73,28 @@ class OperatorPerformanceAnalyzer:
         """Calculate basic performance metrics for each operator."""
         logger.info("Calculating basic performance metrics...")
 
+        # Check for missing columns and create defaults
+        required_columns = ["efficiency", "total_downtime"]
+        for col in required_columns:
+            if col not in df.columns:
+                if col == "efficiency" and "RunningTime" in df.columns and "JobDuration" in df.columns:
+                    df[col] = (df["RunningTime"] / df["JobDuration"]).clip(0, 1).fillna(0.7)
+                elif col == "total_downtime":
+                    downtime_cols = ["SetupTime", "MaintenanceTime", "IdleTime"]
+                    available_cols = [c for c in downtime_cols if c in df.columns]
+                    if available_cols:
+                        df[col] = df[available_cols].sum(axis=1).fillna(0)
+                    else:
+                        df[col] = 0
+                else:
+                    df[col] = 0
+
+        # Ensure other required columns exist
+        if "PartsProduced" not in df.columns:
+            df["PartsProduced"] = 1  # Default to 1 part per job
+        if "SetupTime" not in df.columns:
+            df["SetupTime"] = 600  # Default 10 minutes
+
         metrics = (
             df.groupby("OperatorName")
             .agg(
@@ -542,6 +564,13 @@ class OperatorPerformanceAnalyzer:
         """Create operator rankings across different metrics."""
         logger.info("Creating operator rankings...")
 
+        # Ensure required columns exist for ranking
+        if "parts_per_hour" not in df.columns:
+            if "PartsProduced" in df.columns and "JobDuration" in df.columns:
+                df["parts_per_hour"] = (df["PartsProduced"] * 3600 / df["JobDuration"]).fillna(0)
+            else:
+                df["parts_per_hour"] = 1.0
+
         # Calculate ranking metrics
         operator_metrics = (
             df.groupby("OperatorName")
@@ -679,10 +708,17 @@ class OperatorPerformanceAnalyzer:
         self, operator_name: str, df: pd.DataFrame
     ) -> Dict[str, Any]:
         """Get comprehensive profile for a specific operator."""
-        operator_data = df[df["OperatorName"] == operator_name]
+        operator_data = df[df["OperatorName"] == operator_name].copy()
 
         if len(operator_data) == 0:
             return {"error": f"No data found for operator {operator_name}"}
+
+        # Ensure efficiency column exists
+        if "efficiency" not in operator_data.columns:
+            if "RunningTime" in operator_data.columns and "JobDuration" in operator_data.columns:
+                operator_data["efficiency"] = (operator_data["RunningTime"] / operator_data["JobDuration"]).clip(0, 1).fillna(0.7)
+            else:
+                operator_data["efficiency"] = 0.7  # Default efficiency
 
         profile = {
             "basic_stats": self._calculate_basic_metrics(operator_data).get(
@@ -692,11 +728,11 @@ class OperatorPerformanceAnalyzer:
             "parts_produced": operator_data["PartNumber"].unique().tolist(),
             "total_jobs": len(operator_data),
             "efficiency_distribution": {
-                "mean": operator_data["efficiency"].mean(),
-                "median": operator_data["efficiency"].median(),
-                "std": operator_data["efficiency"].std(),
-                "min": operator_data["efficiency"].min(),
-                "max": operator_data["efficiency"].max(),
+                "mean": float(operator_data["efficiency"].mean()),
+                "median": float(operator_data["efficiency"].median()),
+                "std": float(operator_data["efficiency"].std()),
+                "min": float(operator_data["efficiency"].min()),
+                "max": float(operator_data["efficiency"].max()),
             },
         }
 

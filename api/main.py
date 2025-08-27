@@ -403,10 +403,10 @@ async def get_performance_overview(
                 status_code=404, detail="No data found for specified period"
             )
 
-        # Calculate efficiency if not present
-        if "efficiency" not in df.columns:
-            df["efficiency"] = df["RunningTime"] / df["JobDuration"]
-            df["efficiency"] = df["efficiency"].clip(0, 1)
+        # Preprocess data to add missing columns
+        preprocessor = DataPreprocessor()
+        df_clean = preprocessor.validate_raw_data(df)
+        df = preprocessor.create_derived_features(df_clean)
 
         # Calculate metrics
         response = PerformanceOverviewResponse(
@@ -451,7 +451,12 @@ async def get_operator_analytics(
             start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
         )
 
-        operator_data = df[df["OperatorName"] == operator_name]
+        # Preprocess data to add missing columns
+        preprocessor = DataPreprocessor()
+        df_clean = preprocessor.validate_raw_data(df)
+        df_features = preprocessor.create_derived_features(df_clean)
+
+        operator_data = df_features[df_features["OperatorName"] == operator_name]
 
         if operator_data.empty:
             raise HTTPException(
@@ -460,7 +465,7 @@ async def get_operator_analytics(
 
         # Initialize analyzer
         analyzer = OperatorPerformanceAnalyzer()
-        profile = analyzer.get_operator_profile(operator_name, df)
+        profile = analyzer.get_operator_profile(operator_name, df_features)
 
         response = OperatorAnalyticsResponse(
             operator_name=operator_name,
